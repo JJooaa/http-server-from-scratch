@@ -16,6 +16,12 @@ function extractRouteFromRequest(request: string) {
   return path;
 }
 
+function extractUserAgentFromRequest(request: string) {
+  const requestArray = request.split("\r\n");
+  const userAgent = requestArray.find((item) => item.includes("User-Agent"));
+  return userAgent;
+}
+
 console.log("Server running: Listening for events...");
 
 // Listens for *raw TCP sockets*.
@@ -24,20 +30,34 @@ const server = net.createServer((socket: net.Socket) => {
 
   socket.on("data", (chunk: Buffer) => {
     request += chunk.toString();
+
     const route = extractRouteFromRequest(request);
 
     if (route === "/") {
       socket.write(response("200 OK"));
+      extractUserAgentFromRequest(request);
+
       return socket.end();
     }
+
+    if (route === "/user-agent") {
+      const userAgent = extractUserAgentFromRequest(request)
+        ?.split("User-Agent:")[1]
+        .trim();
+      console.log(userAgent);
+      socket.write(response("200 OK", userAgent));
+      return socket.end();
+    }
+
     if (route.includes("/echo/")) {
       const echoedValue = route.split("/echo/")[1]; // [ "", "echoed_value_here]" ]
       socket.write(response("200 OK", echoedValue));
       return socket.end();
-    } else {
-      socket.write(response("404 Not Found"));
-      return socket.end();
     }
+
+    // Unhandled routes:
+    socket.write(response("404 Not Found"));
+    return socket.end();
   });
 
   socket.on("close", () => {
