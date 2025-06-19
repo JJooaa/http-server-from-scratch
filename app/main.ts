@@ -1,3 +1,4 @@
+import { write } from "bun";
 import * as net from "node:net";
 
 type ResponseArgs = {
@@ -22,14 +23,18 @@ function response({
 
 function extractRouteFromRequest(request: string) {
   const requestArray = request.split("\r\n");
-  const path = requestArray[0].split(" ")[1];
-  return path;
+
+  const body = requestArray.pop();
+  const route = requestArray[0].split(" ")[1];
+  const method = requestArray[0].split(" ")[0];
+
+  return { route, body, method };
 }
 
 function getHeaderFromRequest(request: string, headerName: string) {
   const requestArray = request.split("\r\n");
   const header = requestArray.find((item) => item.includes(headerName))?.trim();
-  const keyValue = header?.split(headerName);
+  const keyValue = header?.split(headerName); // ["User Agent:", " foobar"]
 
   return { key: keyValue?.[0], value: keyValue?.[1].trim() };
 }
@@ -43,6 +48,13 @@ async function readFile(fileName: string) {
   return null;
 }
 
+async function writeFile(fileName: string, body: string) {
+  const dirIndex = process.argv.indexOf("--directory");
+  const directory = dirIndex !== -1 ? process.argv[dirIndex + 1] : "./files";
+
+  await Bun.write(`${directory}/${fileName}`, body);
+}
+
 console.log("Server running: Listening for events...");
 
 // Listens for *raw TCP sockets*.
@@ -52,7 +64,7 @@ const server = net.createServer((socket: net.Socket) => {
   socket.on("data", async (chunk: Buffer) => {
     request += chunk.toString();
 
-    const route = extractRouteFromRequest(request);
+    const { route, body, method } = extractRouteFromRequest(request);
 
     if (route === "/") {
       socket.write(response({ status: "200 OK" }));
@@ -71,7 +83,8 @@ const server = net.createServer((socket: net.Socket) => {
       return socket.end();
     }
 
-    if (route.includes("/files/")) {
+    // Read file
+    if (route.includes("/files/") && method === "GET") {
       const fileName = route.split("/files/")[1];
       const fileContents = await readFile(fileName);
 
@@ -92,6 +105,19 @@ const server = net.createServer((socket: net.Socket) => {
         );
         return socket.end();
       }
+    }
+
+    // Write file
+    if (route.includes("/files/") && method === "POST") {
+      const fileName = route.split("/files/")[1];
+      await writeFile(fileName, body as string);
+
+      socket.write(
+        response({
+          status: "201 Created",
+        })
+      );
+      return socket.end();
     }
 
     // Unhandled routes:
