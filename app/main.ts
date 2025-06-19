@@ -20,7 +20,7 @@ function response({
   );
 }
 
-function extractRouteFromRequest(request: string) {
+function parseHttpRequest(request: string) {
   const requestArray = request.split("\r\n");
 
   const body = requestArray.pop();
@@ -63,7 +63,7 @@ const server = net.createServer((socket: net.Socket) => {
   socket.on("data", async (chunk: Buffer) => {
     request += chunk.toString();
 
-    const { route, body, method } = extractRouteFromRequest(request);
+    const { route, body, method } = parseHttpRequest(request);
 
     if (route === "/") {
       socket.write(response({ status: "200 OK" }));
