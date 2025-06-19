@@ -1,4 +1,3 @@
-import { write } from "bun";
 import * as net from "node:net";
 
 type ResponseArgs = {
