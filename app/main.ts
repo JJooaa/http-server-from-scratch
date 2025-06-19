@@ -1,8 +1,18 @@
 import * as net from "node:net";
 
 function responseHeaderGenerator(header: string, value: string) {
-  return `${header}: ${value}\r\n`;
+  return `${header}: ${value}\r\n` as const;
 }
+
+const CONTENT_ENCODING_TYPES = [
+  "gzip",
+  "compress",
+  "deflate",
+  "br",
+  "zstd",
+  "dcb",
+  "dcz",
+];
 
 type ResponseArgs = {
   status: string;
@@ -85,18 +95,21 @@ const server = net.createServer((socket: net.Socket) => {
     }
 
     if (route.includes("/echo/")) {
-      const echoedValue = route.split("/echo/")[1]; // [ "", "echoed_value_here]" ]
+      const echoedValue = route.split("/echo/")[1]; // [ "", "echoed_value_here"]
       const acceptsEncoding = headers
         .find((item) => item.includes("Accept-Encoding"))
         ?.split(": ");
-      console.log(acceptsEncoding);
-      const requestedContentEncoding = acceptsEncoding?.[1].trim();
+      const validContentEncoding = acceptsEncoding?.[1]
+        .split(", ")
+        .find((enc) => CONTENT_ENCODING_TYPES.includes(enc));
 
-      if (acceptsEncoding && requestedContentEncoding === "gzip") {
+      if (acceptsEncoding && validContentEncoding) {
         socket.write(
           response({
             status: "200 OK",
-            headers: [responseHeaderGenerator("Content-Encoding", "gzip")],
+            headers: [
+              responseHeaderGenerator("Content-Encoding", validContentEncoding),
+            ],
           })
         );
         return socket.end();
