@@ -1,33 +1,41 @@
 import * as net from "node:net";
 
+function responseHeaderGenerator(header: string, value: string) {
+  return `${header}: ${value}\r\n`;
+}
+
 type ResponseArgs = {
   status: string;
   body?: string;
   contentType?: string;
+  headers?: string[];
 };
 
 function response({
   status,
   body = "",
   contentType = "text/plain",
+  headers,
 }: ResponseArgs) {
   return (
     `HTTP/1.1 ${status}\r\n` +
     `Content-Type: ${contentType}\r\n` +
     `Content-Length: ${body.length ?? 0}\r\n` +
+    `${headers?.join() ?? ""}` +
     "\r\n" + // end of headers
     `${body}`
   );
 }
 
 function parseHttpRequest(request: string) {
-  const requestArray = request.split("\r\n");
+  const requestHeadersArray = request.split("\r\n");
+  const requestLine = requestHeadersArray.shift()?.split(" "); // "GET / HTTP/1.1"
+  const body = requestHeadersArray.pop();
 
-  const body = requestArray.pop();
-  const route = requestArray[0].split(" ")[1];
-  const method = requestArray[0].split(" ")[0];
+  const method = requestLine?.[0] ?? ""; // GET, POST, PUT, PATCH, etc..
+  const route = requestLine?.[1] ?? ""; // "/foo" | "/bar"
 
-  return { route, body, method };
+  return { route, body, method, headers: requestHeadersArray };
 }
 
 function getHeaderFromRequest(request: string, headerName: string) {
@@ -63,7 +71,7 @@ const server = net.createServer((socket: net.Socket) => {
   socket.on("data", async (chunk: Buffer) => {
     request += chunk.toString();
 
-    const { route, body, method } = parseHttpRequest(request);
+    const { route, body, method, headers } = parseHttpRequest(request);
 
     if (route === "/") {
       socket.write(response({ status: "200 OK" }));
@@ -78,8 +86,24 @@ const server = net.createServer((socket: net.Socket) => {
 
     if (route.includes("/echo/")) {
       const echoedValue = route.split("/echo/")[1]; // [ "", "echoed_value_here]" ]
-      socket.write(response({ status: "200 OK", body: echoedValue }));
-      return socket.end();
+      const acceptsEncoding = headers
+        .find((item) => item.includes("Accept-Encoding"))
+        ?.split(": ");
+      console.log(acceptsEncoding);
+      const requestedContentEncoding = acceptsEncoding?.[1].trim();
+
+      if (acceptsEncoding && requestedContentEncoding === "gzip") {
+        socket.write(
+          response({
+            status: "200 OK",
+            headers: [responseHeaderGenerator("Content-Encoding", "gzip")],
+          })
+        );
+        return socket.end();
+      } else {
+        socket.write(response({ status: "200 OK", body: echoedValue }));
+        return socket.end();
+      }
     }
 
     // Read file
