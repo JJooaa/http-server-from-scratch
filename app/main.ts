@@ -1,3 +1,4 @@
+import { gzipSync } from "bun";
 import * as net from "node:net";
 
 function responseHeaderGenerator(header: string, value: string) {
@@ -16,24 +17,32 @@ const CONTENT_ENCODING_TYPES = [
 
 type ResponseArgs = {
   status: string;
-  body?: string;
   contentType?: string;
-  headers?: string[];
+  contentLength: number;
+  headers?: string;
 };
 
+/**
+ * Example when writing a response - it's recommended to send the body as a second socket.write() statement:
+ *
+ * const body = "foobar"
+ *
+ * socket.write(response({ status: "200 OK", contentLength: body.length }));
+ * socket.write(body)
+ *
+ */
 function response({
   status,
-  body = "",
   contentType = "text/plain",
+  contentLength = 0,
   headers,
 }: ResponseArgs) {
   return (
     `HTTP/1.1 ${status}\r\n` +
     `Content-Type: ${contentType}\r\n` +
-    `Content-Length: ${body.length ?? 0}\r\n` +
-    `${headers?.join() ?? ""}` +
-    "\r\n" + // end of headers
-    `${body}`
+    `Content-Length: ${contentLength}\r\n` +
+    `${headers ?? ""}` +
+    "\r\n" // end of headers
   );
 }
 
@@ -48,10 +57,9 @@ function parseHttpRequest(request: string) {
   return { route, body, method, headers: requestHeadersArray };
 }
 
-function getHeaderFromRequest(request: string, headerName: string) {
-  const requestArray = request.split("\r\n");
-  const header = requestArray.find((item) => item.includes(headerName))?.trim();
-  const keyValue = header?.split(headerName); // ["User Agent:", " foobar"]
+function getHeaderFromHeaders(headers: string[], headerName: string) {
+  const header = headers.find((item) => item.includes(headerName));
+  const keyValue = header?.split(":"); // ["User Agent:", " foobar"]
 
   return { key: keyValue?.[0], value: keyValue?.[1].trim() };
 }
@@ -84,37 +92,43 @@ const server = net.createServer((socket: net.Socket) => {
     const { route, body, method, headers } = parseHttpRequest(request);
 
     if (route === "/") {
-      socket.write(response({ status: "200 OK" }));
+      socket.write(response({ status: "200 OK", contentLength: 0 }));
       return socket.end();
     }
 
     if (route === "/user-agent") {
-      const { value } = getHeaderFromRequest(request, "User-Agent:");
-      socket.write(response({ status: "200 OK", body: value }));
+      const { value } = getHeaderFromHeaders(headers, "User-Agent:");
+      socket.write(
+        response({ status: "200 OK", contentLength: value?.length ?? 0 })
+      );
+      socket.write(value as string);
       return socket.end();
     }
 
     if (route.includes("/echo/")) {
       const echoedValue = route.split("/echo/")[1]; // [ "", "echoed_value_here"]
-      const acceptsEncoding = headers
-        .find((item) => item.includes("Accept-Encoding"))
-        ?.split(": ");
-      const validContentEncoding = acceptsEncoding?.[1]
-        .split(", ")
+      const { key, value } = getHeaderFromHeaders(headers, "Accept-Encoding:");
+
+      const validContentEncoding = value
+        ?.split(", ") // encoding schemas are seperated by a comma
         .find((enc) => CONTENT_ENCODING_TYPES.includes(enc));
 
-      if (acceptsEncoding && validContentEncoding) {
+      if (key && validContentEncoding) {
+        const compressed = Buffer.from(gzipSync(echoedValue));
         socket.write(
           response({
             status: "200 OK",
-            headers: [
-              responseHeaderGenerator("Content-Encoding", validContentEncoding),
-            ],
+            contentLength: compressed.length,
+            headers: `Content-Encoding: ${validContentEncoding}\r\n`,
           })
         );
+        socket.write(compressed);
         return socket.end();
       } else {
-        socket.write(response({ status: "200 OK", body: echoedValue }));
+        socket.write(
+          response({ status: "200 OK", contentLength: echoedValue.length })
+        );
+        socket.write(echoedValue);
         return socket.end();
       }
     }
@@ -128,15 +142,17 @@ const server = net.createServer((socket: net.Socket) => {
         socket.write(
           response({
             status: "200 OK",
-            body: fileContents,
+            contentLength: fileContents.length,
             contentType: "application/octet-stream",
           })
         );
+        socket.write(fileContents);
         return socket.end();
       } else {
         socket.write(
           response({
             status: "404 Not Found",
+            contentLength: 0,
           })
         );
         return socket.end();
@@ -151,13 +167,14 @@ const server = net.createServer((socket: net.Socket) => {
       socket.write(
         response({
           status: "201 Created",
+          contentLength: 0,
         })
       );
       return socket.end();
     }
 
     // Unhandled routes:
-    socket.write(response({ status: "404 Not Found" }));
+    socket.write(response({ status: "404 Not Found", contentLength: 0 }));
     return socket.end();
   });
 
