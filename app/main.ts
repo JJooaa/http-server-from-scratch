@@ -1,10 +1,6 @@
 import { gzipSync } from "bun";
 import * as net from "node:net";
 
-function responseHeaderGenerator(header: string, value: string) {
-  return `${header}: ${value}\r\n` as const;
-}
-
 const CONTENT_ENCODING_TYPES = [
   "gzip",
   "compress",
@@ -84,16 +80,11 @@ console.log("Server running: Listening for events...");
 
 // Listens for *raw TCP sockets*.
 const server = net.createServer((socket: net.Socket) => {
-  let request = "";
-
   socket.on("data", async (chunk: Buffer) => {
-    request += chunk.toString();
-
-    const { route, body, method, headers } = parseHttpRequest(request);
+    const { route, body, method, headers } = parseHttpRequest(chunk.toString());
 
     if (route === "/") {
-      socket.write(response({ status: "200 OK", contentLength: 0 }));
-      return socket.end();
+      return socket.write(response({ status: "200 OK", contentLength: 0 }));
     }
 
     if (route === "/user-agent") {
@@ -102,7 +93,7 @@ const server = net.createServer((socket: net.Socket) => {
         response({ status: "200 OK", contentLength: value?.length ?? 0 })
       );
       socket.write(value as string);
-      return socket.end();
+      return;
     }
 
     if (route.includes("/echo/")) {
@@ -123,13 +114,13 @@ const server = net.createServer((socket: net.Socket) => {
           })
         );
         socket.write(compressed);
-        return socket.end();
+        return;
       } else {
         socket.write(
           response({ status: "200 OK", contentLength: echoedValue.length })
         );
         socket.write(echoedValue);
-        return socket.end();
+        return;
       }
     }
 
@@ -147,15 +138,14 @@ const server = net.createServer((socket: net.Socket) => {
           })
         );
         socket.write(fileContents);
-        return socket.end();
+        return;
       } else {
-        socket.write(
+        return socket.write(
           response({
             status: "404 Not Found",
             contentLength: 0,
           })
         );
-        return socket.end();
       }
     }
 
@@ -164,18 +154,18 @@ const server = net.createServer((socket: net.Socket) => {
       const fileName = route.split("/files/")[1];
       await writeFile(fileName, body as string);
 
-      socket.write(
+      return socket.write(
         response({
           status: "201 Created",
           contentLength: 0,
         })
       );
-      return socket.end();
     }
 
     // Unhandled routes:
-    socket.write(response({ status: "404 Not Found", contentLength: 0 }));
-    return socket.end();
+    return socket.write(
+      response({ status: "404 Not Found", contentLength: 0 })
+    );
   });
 
   socket.on("close", () => {
