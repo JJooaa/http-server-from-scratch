@@ -1,37 +1,45 @@
-[![progress-banner](https://backend.codecrafters.io/progress/http-server/fb6fc3c4-2048-4e8c-b7db-de1b742b9765)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+# HTTP Server from Scratch (Node.js + TCP)
 
-This is a starting point for TypeScript solutions to the
-["Build Your Own HTTP server" Challenge](https://app.codecrafters.io/courses/http-server/overview).
+This is a simple HTTP/1.1 server built entirely using raw TCP sockets in Node.js. It manually parses incoming requests and crafts proper HTTP responses, without using any web frameworks or higher-level abstractions.
 
-[HTTP](https://en.wikipedia.org/wiki/Hypertext_Transfer_Protocol) is the
-protocol that powers the web. In this challenge, you'll build a HTTP/1.1 server
-that is capable of serving multiple clients.
+## 🚀 Why I Built This
 
-Along the way you'll learn about TCP servers,
-[HTTP request syntax](https://www.w3.org/Protocols/rfc2616/rfc2616-sec5.html),
-and more.
+I built this project as part of a learning challenge, to better understand what actually happens beneath the surface of a web server. Instead of relying on libraries, I wanted to break things down to the fundamentals — working directly with raw TCP sockets and writing my own HTTP handling logic.
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+## 🧠 What I Learned
 
-# Passing the first stage
+This project gave me a much deeper understanding of how HTTP works at a lower level. I got to explore:
 
-The entry point for your HTTP server implementation is in `app/main.ts`. Study
-and uncomment the relevant code, and push your changes to pass the first stage:
+- The structure and purpose of HTTP headers
+- How requests and responses are formed and transmitted over a TCP connection
+- The difference between persistent and non-persistent connections
+- How servers decide to keep a connection open or close it
+- Why small details — like header formatting and `Content-Length` — really matter
 
-```sh
-git commit -am "pass 1st stage" # any msg
-git push origin master
+It was a valuable exercise in thinking like a protocol, rather than a framework.
+
+## 🔧 What It Supports
+
+- Routing:
+  - `/` responds with a basic 200 OK
+  - `/user-agent` echoes the client’s user-agent
+  - `/echo/:value` echoes the value in the URL
+  - `/files/:filename` handles reading and writing plain text files (GET & POST)
+- Basic compression support (gzip) if requested via `Accept-Encoding`
+- Manual handling of HTTP status lines, headers, and bodies
+- Basic connection control with `Connection: close`
+
+## 🛠 Running the Server
+
+```bash
+bun run main.ts --directory ./files
 ```
 
-Time to move on to the next stage!
+This `curl` command exercises persistent connection handling and custom headers:
 
-# Stage 2 & beyond
-
-Note: This section is for stages 2 and beyond.
-
-1. Ensure you have `bun (1.2)` installed locally
-1. Run `./your_program.sh` to run your program, which is implemented in
-   `app/main.ts`.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
+```bash
+curl --http1.1 -v http://localhost:4221/echo/banana \
+  --next http://localhost:4221/user-agent \
+  -H "Connection: close" \
+  -H "User-Agent: mango/raspberry-pineapple"
+```
