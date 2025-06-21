@@ -16,6 +16,7 @@ type ResponseArgs = {
   contentType?: string;
   contentLength: number;
   headers?: string;
+  headersRaw?: string[];
 };
 
 /**
@@ -32,12 +33,17 @@ function response({
   contentType = "text/plain",
   contentLength = 0,
   headers,
+  headersRaw,
 }: ResponseArgs) {
+  const { value } = getHeaderFromHeaders(headersRaw ?? [], "Connection:");
+  const closeConnection = value ? "Connection: close\r\n" : "";
+
   return (
     `HTTP/1.1 ${status}\r\n` +
     `Content-Type: ${contentType}\r\n` +
     `Content-Length: ${contentLength}\r\n` +
     `${headers ?? ""}` +
+    closeConnection +
     "\r\n" // end of headers
   );
 }
@@ -82,17 +88,29 @@ console.log("Server running: Listening for events...");
 const server = net.createServer((socket: net.Socket) => {
   socket.on("data", async (chunk: Buffer) => {
     const { route, body, method, headers } = parseHttpRequest(chunk.toString());
+    const shouldClose = headers.some((h) =>
+      h.toLowerCase().includes("connection: close")
+    );
 
     if (route === "/") {
-      return socket.write(response({ status: "200 OK", contentLength: 0 }));
+      socket.write(
+        response({ status: "200 OK", contentLength: 0, headersRaw: headers })
+      );
+      if (shouldClose) socket.end();
+      return;
     }
 
     if (route === "/user-agent") {
       const { value } = getHeaderFromHeaders(headers, "User-Agent:");
       socket.write(
-        response({ status: "200 OK", contentLength: value?.length ?? 0 })
+        response({
+          status: "200 OK",
+          contentLength: value?.length ?? 0,
+          headersRaw: headers,
+        })
       );
       socket.write(value as string);
+      if (shouldClose) socket.end();
       return;
     }
 
@@ -111,15 +129,22 @@ const server = net.createServer((socket: net.Socket) => {
             status: "200 OK",
             contentLength: compressed.length,
             headers: `Content-Encoding: ${validContentEncoding}\r\n`,
+            headersRaw: headers,
           })
         );
         socket.write(compressed);
+        if (shouldClose) socket.end();
         return;
       } else {
         socket.write(
-          response({ status: "200 OK", contentLength: echoedValue.length })
+          response({
+            status: "200 OK",
+            contentLength: echoedValue.length,
+            headersRaw: headers,
+          })
         );
         socket.write(echoedValue);
+        if (shouldClose) socket.end();
         return;
       }
     }
@@ -135,17 +160,22 @@ const server = net.createServer((socket: net.Socket) => {
             status: "200 OK",
             contentLength: fileContents.length,
             contentType: "application/octet-stream",
+            headersRaw: headers,
           })
         );
         socket.write(fileContents);
+        if (shouldClose) socket.end();
         return;
       } else {
-        return socket.write(
+        socket.write(
           response({
             status: "404 Not Found",
             contentLength: 0,
+            headersRaw: headers,
           })
         );
+        if (shouldClose) socket.end();
+        return;
       }
     }
 
@@ -154,18 +184,27 @@ const server = net.createServer((socket: net.Socket) => {
       const fileName = route.split("/files/")[1];
       await writeFile(fileName, body as string);
 
-      return socket.write(
+      socket.write(
         response({
           status: "201 Created",
           contentLength: 0,
+          headersRaw: headers,
         })
       );
+      if (shouldClose) socket.end();
+      return;
     }
 
     // Unhandled routes:
-    return socket.write(
-      response({ status: "404 Not Found", contentLength: 0 })
+    socket.write(
+      response({
+        status: "404 Not Found",
+        contentLength: 0,
+        headersRaw: headers,
+      })
     );
+    if (shouldClose) socket.end();
+    return;
   });
 
   socket.on("close", () => {
